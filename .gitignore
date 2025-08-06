@@ -1,3 +1,8 @@
+yara64.exe
+yarac64.exe
+
+samples\
+
 # Logs
 logs
 *.log
