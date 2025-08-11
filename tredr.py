@@ -20,16 +20,53 @@ root = tk.Tk() # main window
 root.title("TREDR - Trojan Risk Education & Detection Resource") # main title seen in the window 
 root.geometry("760x500") # size of the entire screen
 
-title_label = tk.Label(root, text="YARA analysis + VirusTotal hybrid verification", 
-                       font=("Helvetica", 18, "bold"), bg="#f0f2f5", fg="#1a1a1a")
-title_label.pack(pady=10)
+# -------- NOTEBOOK --------
+# creating a notebook so theres different tabs in the GUI
+notebook = ttk.Notebook(root)
+notebook.pack(fill="both", expand=True, padx=12, pady=8) #packs the notebook into the root window with padding
 
-desc_label = tk.Label(root, text="Choose a folder to scan for suspicious files using YARA + VirusTotal", font=("Helvetica", 10), bg="#f0f2f5")
-desc_label.pack(pady=5)
+# frame for the tabs (can be extendable)
+scan_tab = ttk.Frame(notebook) # the first main page for scanning
+history_tab = ttk.Frame(notebook) # file list of all the files scanned
 
-frame = tk.Frame(root)
-frame.pack(pady=10)
+# adding the tabs to the notebook
+notebook.add(scan_tab, text="Scan") # tab is called 'Scan'
+notebook.add(history_tab, text="History") # tab is called 'History'
 
+style = ttk.Style()
+style.theme_use("clam") # this is the theme of the GUI (clam is a light theme)
+style.configure("TNotebook", background="#0f1320", borderwidth=0)
+
+style.configure("Treeview", rowheight=24, font=("Arial", 10)) #treeview is the table that will be used in the history tab - the name is from the tkinter library
+style.configure("Treeview.Heading", font=("Arial", 12, "bold")) # the headings of the table will be bolded
+style.configure("TButton", font=("Arial", 10), padding=6) # the buttons will have a font of Arial, size 10 and padding of 6 pixels
+
+# -------- SCAN TAB --------
+
+# added some header rows for the scan tab
+header_row = tk.Frame(scan_tab, bg="#dcdad5") # header row for the scan tab - bg is the colour of the notebook
+header_row.pack(fill="x", pady=(8,6)) # packs the header row into the scan tab with padding (pack means to add the widget to the parent widget)
+
+titles = tk.Frame(header_row, bg="#dcdad5")
+titles.pack(side="left", anchor="w") # packs the titles frame to the left side of the header row (anchor means to align the widget to the west side)
+
+# main title
+title = tk.Label(scan_tab, text="Hybrid Trojan Detection Tool",
+                 font=("Arial", 16, "bold"), bg="#dcdad5") # title of the scan tab
+title.pack(pady=(14,6))
+
+#subtitle going beneath the title
+description = tk.Label(scan_tab, text="YARA analysis + VirusTotal hybrid verification",
+                    font=("Arial", 12), bg="#dcdad5") # subtitle of the scan tab
+description.pack(pady=(0, 10))
+
+actions = tk.Frame(header_row, bg="#dcdad5") # actions frame for the scan tab
+actions.pack(side="right", anchor="e") # packs the actions frame to the right side
+
+controls = tk.Frame(scan_tab, bg="#dcdad5") # controls frame for the scan tab
+controls.pack(fill="x", padx=12, pady=(0, 8)) # packs
+
+# ----- SCAN BUTTON -----
 def browse_and_scan():
     folder = filedialog.askdirectory()
     if folder:
@@ -37,10 +74,24 @@ def browse_and_scan():
     if not folder:
         return
     
-scan_button = tk.Button(frame, text="Select Folder & Scan", command=browse_and_scan)
+scan_button = ttk.Button(controls, text="Select Folder to Scan", command=browse_and_scan)
 scan_button.pack()
 
-output_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=85, height=25)
-output_box.pack(padx=10, pady=10)
-output_box.configure(state="disabled") # readonly
+# ----- OUTPUT RESULT BOX -----
+output_box = scrolledtext.ScrolledText(scan_tab, wrap=tk.WORD, width=110, height=16,
+                                        font=("Arial", 10), bg="#0f1320", fg="#4d555f",
+                                        insertbackground="#e5e7eb", borderwidth=0)
+output_box.pack(padx=14, pady=(6,16), fill="both", expand=True)
+output_box.configure(state="disabled") # makes the output box read-only
 
+# different colours for different information in the output box - more visually intruiging for the user - breaks the parts up easier too
+output_box.tag_config("heading", font=("Consolas", 10, "bold"), foreground="#93c5fd")
+output_box.tag_config("heading2", font=("Consolas", 10, "bold"), foreground="#a7f3d0")
+output_box.tag_config("ok", foreground="#22c55e")
+output_box.tag_config("okbold", font=("Consolas", 10, "bold"), foreground="#22c55e")
+output_box.tag_config("warn", foreground="#f59e0b")
+output_box.tag_config("info", foreground="#60a5fa")
+output_box.tag_config("err", foreground="#f87171")
+output_box.tag_config("muted", foreground="#94a3b8")
+
+root.mainloop() # starts it
