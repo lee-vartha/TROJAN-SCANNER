@@ -42,8 +42,6 @@ style.configure("Treeview.Heading", font=("Arial", 12, "bold")) # the headings o
 style.configure("TButton", font=("Arial", 10), padding=6) # the buttons will have a font of Arial, size 10 and padding of 6 pixels
 
 # -------- SCAN TAB --------
-
-# added some header rows for the scan tab
 header_row = tk.Frame(scan_tab, bg="#dcdad5") # header row for the scan tab - bg is the colour of the notebook
 header_row.pack(fill="x", pady=(8,6)) # packs the header row into the scan tab with padding (pack means to add the widget to the parent widget)
 
@@ -56,9 +54,9 @@ title = tk.Label(scan_tab, text="Hybrid Trojan Detection Tool",
 title.pack(pady=(14,6))
 
 #subtitle going beneath the title
-description = tk.Label(scan_tab, text="YARA analysis + VirusTotal hybrid verification",
+subtitle = tk.Label(scan_tab, text="YARA analysis + VirusTotal hybrid verification",
                     font=("Arial", 12), bg="#dcdad5") # subtitle of the scan tab
-description.pack(pady=(0, 10))
+subtitle.pack(pady=(0, 10))
 
 actions = tk.Frame(header_row, bg="#dcdad5") # actions frame for the scan tab
 actions.pack(side="right", anchor="e") # packs the actions frame to the right side
@@ -75,7 +73,7 @@ def browse_and_scan():
         return
     
 scan_button = ttk.Button(controls, text="Select Folder to Scan", command=browse_and_scan)
-scan_button.pack()
+scan_button.pack(side="left", padx=8, anchor="e")
 
 # ----- OUTPUT RESULT BOX -----
 output_box = scrolledtext.ScrolledText(scan_tab, wrap=tk.WORD, width=110, height=16,
@@ -94,4 +92,26 @@ output_box.tag_config("info", foreground="#60a5fa")
 output_box.tag_config("err", foreground="#f87171")
 output_box.tag_config("muted", foreground="#94a3b8")
 
-root.mainloop() # starts it
+# -------- HISTORY TAB --------
+title = tk.Label(history_tab, text="Scan History",
+                 font=("Arial", 16, "bold"), bg="#dcdad5")
+title.pack(pady=(14,6))
+
+table_frame = tk.Frame(history_tab, bg="#dcdad5")
+table_frame.pack(fill="both", expand=True, padx=14, pady=(4, 6))
+# columns
+cols = ("File", "Rule", "Date", "Status")
+history_table = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
+for c, w in zip(cols, (160, 140, 140, 140)):
+    history_table.heading(c, text=c)
+    history_table.column(c, width=w, stretch=(c == "File"))
+history_table.pack(fill="x")
+
+# vsb is vertical scrollbar
+vsb = ttk.Scrollbar(table_frame, orient="vertical", command=history_table.yview)
+history_table.configure(yscroll=vsb.set)
+
+history_table.pack(side="left", fill="both", expand=True)
+vsb.pack(side="right", fill="y")
+
+root.mainloop() # starts main loop
