@@ -15,14 +15,76 @@ VT_URL = "https://virustotal.com/api/v3/files/"
 UPLOAD_URL = "https://www.virustotal.com/api/v3"
 DELAY = 15 # api rate limit is 1 req per 15 sec
 
-def scan_folder(folder_path, output_box):
-    output_box.configure(state="normal")
-    output_box.delete(1.0, tk.END)
-    scan_button.config(state="disabled")
-    output_box.insert(tk.END, "[+] Running YARA scan...\n")
+# function to double make sure the log is read-only
+def set_log_readonly(state: bool):
+    output_box.configure(state="disabled" if state else "normal")
 
+# lines in the output box (doing this instead of 'output-box.insert')
+def log_line(text="", tag=None): # the tag is what I created earlier - no colouring
+    set_log_readonly(False)
+    if tag: 
+        output_box.insert(tk.END, text + "\n", tag) # have the text in the output box with a tag
+    else:
+        output_box.insert(tk.END, text + "\n") # otherwise have standard colouring that arent specific
+    set_log_readonly(True) # makes the output box read-only again
+    output_box.see(tk.END) #.see means scrolls to the end of the output box to show the latest log line
+    root.update_idletasks() # updates the GUI to reflect the changes made - called idle tasks because it runs when the GUI is idle
+
+#aesthetic reability designs:
+# purely aesthetic function so theres breaklines that can be referenced easily 
+def hr():
+    log_line("-" * 88, "muted") #muted is one of the tags for colours
+
+def heading(text):
+    hr()
+    log_line(f"= {text}", "heading") #heading is a tag so theres colours
+    hr()
+
+# added function to set scanning state
+# this is used to disable the scan button when scanning is in progress
+def set_scanning(on: bool):
+    if on:
+        scan_button.configure(state="disabled")
+    else:
+        scan_button.configure(state="normal")
+
+# resetting the table in the history tab
+def reset_table():
+    for row in history_table.get_children():
+        history_table.delete(row)
+        
+# adding a row to the history table
+def add_row(file_path, rule, mal, susp, status): # have added extra ones, will need to update the gui to show that
+    history_table.insert("", tk.END, values=(file_path, rule, mal, susp, status))
+
+# making the definition only take the folder parameter
+def scan_folder(folder_path):
+    reset_table() # reset the table in the history tab
+    scan_button.config(state="normal") 
+    set_log_readonly(False) # makes the output box editable so I can write in it
+    output_box.delete(1.0, tk.END)
+    set_log_readonly(True) # makes the output box read-only again
+    
+    set_scanning(True) # sets the scanning state to true
+
+    #adding a section to provide details about the scan [new section]
+    # main starting output - for users to see the time, target folder/files and the rules used
+    #getting the date as 'DD-MM-YYYY with the hour, minute and seconds
+    ts = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    heading("Hybrid Trojan Scanner")
+    log_line(f"Time: {ts}", "muted") # muted tag (grey colour)
+    log_line(f"Target: {folder_path}") # referencing the folder path declaration at start of file
+    log_line(f"Rules: {RULES_FILE}") # referencing the rules file declaration at start of file
+    hr() # horizontal rule for aesthetics
+
+    # instead of output_box.insert, i have added the 'heading' - differentiates different text
+    #i added more detail with the title as well, so that its more user-friendly and interesting'
+    heading("Step 1: Scanning files for suspicious patterns... ")
+
+    # yara is an external source, so this is why subprocess is used
+    # we reference the details added in the start, the path, rules etc.
     yara_result = subprocess.run(
-        [YARA_PATH, RULES_FILE, folder_path],
+        [YARA_PATH, RULES_FILE, folder_path], # referencing YARA path, rule and folder path that user chose
         capture_output=True,
         text=True
     )
@@ -30,83 +92,99 @@ def scan_folder(folder_path, output_box):
     # yara_result.stdout represents the standard output
     # .strip() removes whitespace and 
     # .splitlines() splits output into list
-    matches = yara_result.stdout.strip().splitlines()
+    matches = [ln for ln in yara_result.stdout.strip().splitlines() if ln]
 
     # if theres no match then the output box will say nothings wrong
-    if not matches or matches == ['']:
-        output_box.insert(tk.END, "[-] No suspicious files detected,\n")
-        done_scanning()
+    if not matches:
+        log_line("✅ No suspicious files found. Your folder looks clean!", "ok")
+        set_scanning(False)
+        log_line("\nScan Complete", "okbold")
         return
 
     # otherwise the box will insert
-    output_box.insert(tk.END, "[+] YARA matches found: \n")
-    # creates an empty set, which will list out unordered items
-    suspicious_files = set()
+    suspicious_files = [] # empty set
+    log_line(f"[+] Suspicious matches have been found: {len(matches)}", "warn")
     # for each line with the match
     for line in matches:
         #inserting "=> {line}" into the 'output_box' entry box
         # tk.END is showing the position on where the text should go - this goes at the end of the context of this string
-        output_box.insert(tk.END, f"=> {line}\n")
-        parts = line.split()
-        # if the length of everything is more than 2 then add the second element
-        if len(parts) >= 2:
-            suspicious_files.add(parts[1])
+        parts = line.split(maxsplit=1)
+        rule = parts[0]
+        file_path = parts[1] if len(parts) > 1 else "UNKNOWN"
+        suspicious_files.append((file_path, rule))
+        log_line(f"  - {rule} => {file_path}")
 
+    # doing the same heading to 'check virustotal', just made it reference the 'heading' definition
+    # made it more interesting to read too
     # in the same entry box, add 'Checking VirusTotal'
-    output_box.insert(tk.END, "\n[+] Checking VirusTotal... \n")
+    heading("🔍 Step 2: Cross-scanning files with VirusTotal... ")
 
     # working with the API and inserting the headers
     headers = {"x-apikey": VT_API_KEY}
 
-
-    for file_path in suspicious_files:
-        output_box.insert(tk.END, f"\n => {file_path}\n")
+    for file_path, rule in suspicious_files:
+        log_line(f"=> {file_path}", "heading2")
         try:
             # calculating the SHA256 hash 
             # open the file and read in binary mode
             with open(file_path, "rb") as f:
-                file_bytes = f.read()
-                sha256 = hashlib.sha256(file_bytes).hexdigest()
+                # took out the file_bytes variable and just added it as parameter in sha256 variable
+                sha256 = hashlib.sha256(f.read()).hexdigest()
             response = requests.get(VT_URL + sha256, headers=headers)
 
             # if its successful (200)
             if response.status_code == 200:
-                data = response.json()
-                stats = data["data"]["attributes"]["last_analysis_stats"]
-                output_box.insert(tk.END, f"VT Detection: {stats['malicious']} malicious, {stats['suspicious']} suspicious\n")
+                #used to have 'data = response.json()' but decided to just add it to 'stats' to have less lines
+                stats = response.json()["data"]["attributes"]["last_analysis_stats"]
+                mal, susp = stats["malicious"], stats["suspicious"]
+                status = "Known (hash)" if (mal or susp) else "Clean"
+                log_line(f"VirusTotal found {mal} malicious and {susp} suspicious reports for this file", "info")
+                add_row(file_path, rule, mal, susp, status)
 
-            # if it failed (client error - 400)
+            # if it failed (client error - 400) - this is if it wasnt found in the database, then it would upload the file itself
             elif response.status_code == 404:
-                output_box.insert(tk.END, "Not found in VT database. Uploading file...\n")
+                log_line(" Not in VT. Uploading file..", "warn")
 
                 files = {"file": (os.path.basename(file_path), open(file_path, "rb"))}
+                # requests is one of the import statement used for HTTP requests - in this case, its to POST
                 upload_response = requests.post(UPLOAD_URL, headers=headers, files=files)
 
                 if upload_response.status_code == 200:
                     analysis_id = upload_response.json()["data"]["id"]
-                    output_box.insert(tk.END, f"Uploaded. Analysis ID: {analysis_id}\n Waiting for analysis ({DELAY} secs)...\n")
+                    log_line(f" Uploaded. Analysis ID: {analysis_id}", "muted")
+                    log_line(f" Waiting {DELAY}s for results..", "muted")
                     time.sleep(DELAY)
 
                     result = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers)
                     if result.status_code == 200:
                         stats = result.json()["data"]["attributes"]["stats"]
-                        output_box.insert(tk.END, f"VT Detection: {stats['malicious']} malicious, {stats['suspicious']} suspicious \n")
+                        mal, susp = stats["malicious"], stats["suspicious"]
+                        log_line(f" VT: {mal} malicious, {susp} suspicious", "info")
+                        status = "New (uploaded)"
+                        add_row(file_path, rule, mal, susp, status)
                     else:
-                        output_box.insert(tk.END, f"Couldnt retrieve results: {result.status_code}\n")
+                        log_line(f"Could not retrieve results (HTTP {result.status_code})")
+                        add_row(file_path, rule, "-", "-", "Upload OK/Report pending")
                 else:
-                    output_box.insert(tk.END, f"Upload failed: {upload_response.status_code}\n")
+                    log_line(f"Upload failed (HTTP {upload_response.status_code})", "err")
+                    add_row(file_path, rule, "-", "-", "Upload failed")
             else:
-                output_box.insert(tk.END, f"VT error: {response.status_code}\n")
+                log_line(f"VT error (HTTP {response.status_code})", "err")
+                add_row(file_path, rule, "-", "-", f"VT error {response.status_code}")
 
         except Exception as e:
-            output_box.insert(tk.END, f"Error: {e}\n")
+            log_line(f"Error: {e}", "err")
+            add_row(file_path, rule, "-", "-", "Error")
 
-    done_scanning()
+    heading("Summary")
+    total = len(suspicious_files)
+    mal_total = sum(int(v) if isinstance(v, int) else 0 for v in
+                    [history_table.set(r, "VT Malicious") for r in history_table.get_children()])
+    log_line(f"Files flagged by YARA: {total}")
+    log_line(f"VirusTotal (malicious hits): {mal_total}")
+    set_scanning(False)
+    log_line("\n Scan complete.", "okbold")
 
-def done_scanning():
-    scan_button.config(state="normal")
-    output_box.insert(tk.END, "\n Scan Complete.")
-    output_box.configure(state="disabled")
 
 
 # -------- GUI --------
@@ -162,7 +240,7 @@ controls.pack(fill="x", padx=12, pady=(0, 8)) # packs
 def browse_and_scan():
     folder = filedialog.askdirectory()
     if folder:
-        scan_folder(folder, output_box) # not applicable until backend logic is set
+        scan_folder(folder)
     if not folder:
         return
     
@@ -194,9 +272,9 @@ title.pack(pady=(14,6))
 table_frame = tk.Frame(history_tab, bg="#dcdad5")
 table_frame.pack(fill="both", expand=True, padx=14, pady=(4, 6))
 # columns
-cols = ("File", "Rule", "Date", "Status")
+cols = ("File", "Rule", "Malicious", "Suspicious", "Status")
 history_table = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
-for c, w in zip(cols, (160, 140, 140, 140)):
+for c, w in zip(cols, (160, 140, 100, 100, 140)):
     history_table.heading(c, text=c)
     history_table.column(c, width=w, stretch=(c == "File"))
 history_table.pack(fill="x")
