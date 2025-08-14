@@ -8,11 +8,26 @@ import tkinter as tk # for the GUI
 from tkinter import filedialog, scrolledtext, ttk
 from datetime import datetime
 
+def decide_verdict(yara_matched: bool, stats: dict | None) -> str:
+    """
+    vt_stats: dict with keys 'malicious' and 'suspicious' (or none if not known)
+    - malicious if VT reports any malicious > 0
+    - else suspicious if YARA matched
+    - else clean
+    """
+
+    if stats and stats.get("malicious", 0) > 0:
+        return "Malicious"
+    if yara_matched:
+        return "Suspicious"
+    return "Clean"
+
+
 YARA_PATH = "yara64.exe"
 RULES_FILE = "rules\\trojan_rules.yar"
 VT_API_KEY = "34923601df873108e50af7f497e636c88f6087851ca5321dde99cfebec76f509"
-VT_URL = "https://virustotal.com/api/v3/files/"
-UPLOAD_URL = "https://www.virustotal.com/api/v3"
+VT_URL = "https://www.virustotal.com/api/v3/files/"
+UPLOAD_URL = "https://www.virustotal.com/api/v3/files"
 DELAY = 15 # api rate limit is 1 req per 15 sec
 
 # function to double make sure the log is read-only
@@ -54,8 +69,8 @@ def reset_table():
         history_table.delete(row)
         
 # adding a row to the history table
-def add_row(file_path, rule, mal, susp, status): # have added extra ones, will need to update the gui to show that
-    history_table.insert("", tk.END, values=(file_path, rule, mal, susp, status))
+def add_row(file_path, rule, mal="-", susp="-", status="Pending"): # have added extra ones, will need to update the gui to show that
+    return history_table.insert("", tk.END, values=(file_path, rule, mal, susp, status))
 
 # making the definition only take the folder parameter
 def scan_folder(folder_path):
@@ -108,11 +123,11 @@ def scan_folder(folder_path):
     for line in matches:
         #inserting "=> {line}" into the 'output_box' entry box
         # tk.END is showing the position on where the text should go - this goes at the end of the context of this string
-        parts = line.split(maxsplit=1)
-        rule = parts[0]
-        file_path = parts[1] if len(parts) > 1 else "UNKNOWN"
-        suspicious_files.append((file_path, rule))
+        rule, file_path = line.split(maxsplit=1)
+        file_path = file_path.strip()
+        suspicious_files.append({"path": file_path, "rule": rule})
         log_line(f"  - {rule} => {file_path}")
+
 
     # doing the same heading to 'check virustotal', just made it reference the 'heading' definition
     # made it more interesting to read too
@@ -122,8 +137,15 @@ def scan_folder(folder_path):
     # working with the API and inserting the headers
     headers = {"x-apikey": VT_API_KEY}
 
-    for file_path, rule in suspicious_files:
+    total_mal = 0
+
+    for item in suspicious_files:
+        file_path = item["path"]
+        rule = item["rule"]
+
+        row_id = add_row(file_path, rule, "-", "-", "Pending")
         log_line(f"=> {file_path}", "heading2")
+
         try:
             # calculating the SHA256 hash 
             # open the file and read in binary mode
@@ -131,18 +153,30 @@ def scan_folder(folder_path):
                 # took out the file_bytes variable and just added it as parameter in sha256 variable
                 sha256 = hashlib.sha256(f.read()).hexdigest()
             response = requests.get(VT_URL + sha256, headers=headers)
+            stats = None
 
             # if its successful (200)
             if response.status_code == 200:
                 #used to have 'data = response.json()' but decided to just add it to 'stats' to have less lines
                 stats = response.json()["data"]["attributes"]["last_analysis_stats"]
-                mal, susp = stats["malicious"], stats["suspicious"]
-                status = "Known (hash)" if (mal or susp) else "Clean"
-                log_line(f"VirusTotal found {mal} malicious and {susp} suspicious reports for this file", "info")
-                add_row(file_path, rule, mal, susp, status)
+                mal, susp = stats.get("malicious", 0), stats.get("suspicious", 0)
+                history_table.set(row_id, "mal", mal)
+                history_table.set(row_id, "susp", susp)
 
+                verdict = decide_verdict(yara_matched=True, stats=stats)
+                history_table.set(row_id, "status", verdict)
+
+                total_mal += mal
+
+                if verdict == "Malicious":
+                    log_line(f"VT confirms: {mal} malicious / {susp} suspicious => Verdict {verdict}", "err")
+                else:
+                    log_line(f"VT confirms: {mal} malicious / {susp} suspicious => Verdict {verdict}", "info")
+
+                log_line(f"VirusTotal found {mal} malicious and {susp} suspicious reports for this file", "info")
             # if it failed (client error - 400) - this is if it wasnt found in the database, then it would upload the file itself
             elif response.status_code == 404:
+                history_table.set(row_id, "status", decide_verdict(True, None))
                 log_line(" Not in VT. Uploading file..", "warn")
 
                 files = {"file": (os.path.basename(file_path), open(file_path, "rb"))}
@@ -158,33 +192,34 @@ def scan_folder(folder_path):
                     result = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers)
                     if result.status_code == 200:
                         stats = result.json()["data"]["attributes"]["stats"]
-                        mal, susp = stats["malicious"], stats["suspicious"]
-                        log_line(f" VT: {mal} malicious, {susp} suspicious", "info")
-                        status = "New (uploaded)"
-                        add_row(file_path, rule, mal, susp, status)
+                        mal, susp = stats.get("malicious", 0), stats.get("suspicious", 0)
+                        history_table.set(row_id, "mal", mal)
+                        history_table.set(row_id, "susp", susp)
+                        verdict = decide_verdict(True, stats)
+                        history_table.set(row_id, "status", verdict)
+                        total_mal += mal
+                        log_line(f" VT: {mal} malicious / {susp} suspicious => Veridct {verdict}", "err" if verdict == "Malicious" else "info")
+                        
                     else:
-                        log_line(f"Could not retrieve results (HTTP {result.status_code})")
-                        add_row(file_path, rule, "-", "-", "Upload OK/Report pending")
+                        log_line(f"Could not retrieve results (HTTP {result.status_code}) Keeping YARA verdict: Suspicious", "err")
+                        history_table.set(file_path, rule, "-", "-", "Upload OK/Report pending")
                 else:
-                    log_line(f"Upload failed (HTTP {upload_response.status_code})", "err")
-                    add_row(file_path, rule, "-", "-", "Upload failed")
+                    log_line(f"Upload failed (HTTP {upload_response.status_code}). Keeping YARA verdict: Suspicious", "err")
+                    history_table.set(file_path, rule, "-", "-", "Upload failed")
             else:
-                log_line(f"VT error (HTTP {response.status_code})", "err")
-                add_row(file_path, rule, "-", "-", f"VT error {response.status_code}")
+                log_line(f"VT error (HTTP {response.status_code}). Keeping YARA verdict: Suspicious", "err")
+                history_table.set(file_path, rule, "-", "-", f"VT error {response.status_code}")
 
         except Exception as e:
             log_line(f"Error: {e}", "err")
-            add_row(file_path, rule, "-", "-", "Error")
+            history_table.set(file_path, rule, "-", "-", "Error")
 
     heading("Summary")
-    total = len(suspicious_files)
-    mal_total = sum(int(v) if isinstance(v, int) else 0 for v in
-                    [history_table.set(r, "VT Malicious") for r in history_table.get_children()])
-    log_line(f"Files flagged by YARA: {total}")
-    log_line(f"VirusTotal (malicious hits): {mal_total}")
+    
+    log_line(f"Files flagged by YARA: {len(suspicious_files)}")
+    log_line(f"VirusTotal confirmed malicious: {total_mal}")
     set_scanning(False)
-    log_line("\n Scan complete.", "okbold")
-
+    log_line("\n Scan Completed", "okbold")
 
 
 # -------- GUI --------
@@ -272,18 +307,30 @@ title.pack(pady=(14,6))
 table_frame = tk.Frame(history_tab, bg="#dcdad5")
 table_frame.pack(fill="both", expand=True, padx=14, pady=(4, 6))
 # columns
-cols = ("File", "Rule", "Malicious", "Suspicious", "Status")
+cols = ("file", "rule", "mal", "susp", "status")
 history_table = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
-for c, w in zip(cols, (160, 140, 100, 100, 140)):
-    history_table.heading(c, text=c)
-    history_table.column(c, width=w, stretch=(c == "File"))
-history_table.pack(fill="x")
+
+for cid, label, width, stretch in [
+    ("file", "File", 260, True),
+    ("rule", "Rule", 140, False),
+    ("mal", "VT Malicious", 110, False),
+    ("susp", "VT Suspicious", 110, False),
+    ("status", "Verdict", 140, False),
+]:
+    history_table.heading(cid, text=label, anchor="w")
+    history_table.column(cid, width=width, stretch=stretch, anchor="w")
 
 # vsb is vertical scrollbar
 vsb = ttk.Scrollbar(table_frame, orient="vertical", command=history_table.yview)
-history_table.configure(yscroll=vsb.set)
+history_table.configure(yscrollcommand=vsb.set)
 
-history_table.pack(side="left", fill="both", expand=True)
-vsb.pack(side="right", fill="y")
+# history_table.pack(side="left", fill="both", expand=True)
+# vsb.pack(side="right", fill="y")
+
+history_table.grid(row=0, column=0, sticky="nsew")
+vsb.grid(row=0, column=1, sticky="ns")
+table_frame.grid_columnconfigure(0, weight=1)
+table_frame.grid_rowconfigure(0, weight=1)
+
 
 root.mainloop() # starts main loop
