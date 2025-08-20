@@ -3,7 +3,7 @@ rule Trojan_Backdoor
     meta:
         description = "Detects a generic backdoor trojan"
         author = "Lee"
-        date = "2025-08-06"
+        date = "19-08-2025"
     
     strings:
         $func1 = "CreateRemoteThread" ascii
