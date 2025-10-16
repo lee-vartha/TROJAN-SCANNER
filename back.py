@@ -248,7 +248,3 @@ def scan_folder(folder_path, output_box, scan_button, root, history_table, progr
     set_scanning(scan_button, False)
 
     log_line(output_box, root, "\n Scan Completed", "okbold")
-
-    # toggle the report using dropdown open/close
-
-
