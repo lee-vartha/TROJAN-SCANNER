@@ -1,5 +1,6 @@
 import os
 import tkinter as tk # for the GUI
+import sqlite3
 from ttkthemes import ThemedTk
 from tkinter import filedialog, scrolledtext, ttk, messagebox
 from shredr_backend import start_scan, generate_summary
@@ -66,6 +67,7 @@ class launch_gui():
         title_frame = ttk.Frame(controls)
         title_frame.pack(fill='x')
 
+        
         # logo_path = "TREDR-LOGO.png"
         # logo_img = Image.open(logo_path)
         # logo_img = logo_img.resize((150, 150))
@@ -135,7 +137,7 @@ class launch_gui():
         self.output_box = scrolledtext.ScrolledText(console_frame, wrap=tk.WORD, height=30, state='disabled',
                                                 font=("Times New Roman", 10), bg="#ffffff", fg="#bdc4cc",
                                                 insertbackground="#e5e7eb")
-        self.output_box.pack(padx=14, pady=(8,10), fill="both", expand=True)
+        self.output_box.pack(padx=5, pady=5, fill="both", expand=True)
 
         self.setup_text_tags()
 
@@ -226,28 +228,36 @@ class launch_gui():
 
         for tag, config in tags.items():
             self.output_box.tag_configure(tag, **config)
+
+    def load_history(self, history_table):
+        conn = sqlite3.connect("history.db")
+        cur = conn.cursor()
+        cur.execute("SELECT filename, yara_matches, vt_detections, vt_result, timestamp FROM scans ORDER BY id DESC")
+        for row in cur.fetchall():
+            self.history_table.insert("", "end", values=row)
+        conn.close()
+
     # -------- HISTORY TAB --------
     def create_history_page(self):
         history_tab = ttk.Frame(self.notebook) # file list of all the files scanned
         self.notebook.add(history_tab, text="History") # tab is called 'History'
 
         title = tk.Label(history_tab, text="Scan History",
-                        font=("Times New Roman", 16), bg="#dcdad5")
+                        font=("Times New Roman", 16), bg="#f5f6f7")
         title.pack(pady=(14,6))
 
         table_frame = tk.Frame(history_tab, bg="#dcdad5")
         table_frame.pack(fill="both", expand=True, padx=10, pady=(0,10))
         # columns
-        cols = ("timestamp", "file", "rule", "mal", "susp", "status")
+        cols = ("file", "yara_matches", "vt_detections", "vt_result", "timestamp")
         self.history_table = ttk.Treeview(table_frame, columns=cols, show="headings")
 
         column_config = [
-            ("timestamp", "Timestamp", 150, True),
             ("file", "File", 260, True),
-            ("rule", "Rule", 140, False),
-            ("mal", "VT Malicious", 110, False),
-            ("susp", "VT Suspicious", 110, False),
-            ("status", "Verdict", 140, False),
+            ("yara_matches", "YARA Matches", 200, False),
+            ("vt_detections", "VT Detections", 110, False),
+            ("vt_result", "VT Result", 100, False),
+            ("timestamp", "Timestamp", 150, True),
         ]
 
         #cid is column ID
@@ -276,6 +286,11 @@ class launch_gui():
         
         ttk.Button(clear_tab, text="Clear History", 
                   command=self.clear_history).pack(side='right')
+        
+        self.load_history(self.history_table)
+
+
+
 
     def create_about_page(self):
         about_frame = ttk.Frame(self.notebook)
@@ -299,28 +314,6 @@ from VirusTotal if necessary.
 The source of the global reputation score in SHREDR is the collective consensus gathered from the multiple
 antivirus engines/security vendors which scans the file on the VT platform.
 
-The reason why a low VT score (2/70 vendors) can still result in a SUSPICIOUS verdict because even if
-its a low score, if its not 0, then it still indicates a highly targeted, new or proprietary threat
-which justifies escalation for further manual forensic review
-
-For the results, it uses 'progressive disclosure', by seperating result sets for usual end-users
-to see a simple verdict first, then providing another summarized tab to provide the full ground truth and raw data (hash, matched YARA rules, unparsed VT JSON)
-for technical analysis
-
-- Data aggregation principle for the first verdict is used by any positive match (SUSPICIOUS OR
-MALICIOUS) from either YARA or VirusTotal overrides a benign verdict
-
-- Asynchronous programming is critical for the VirusTotal call since it prevents the applications triage layer from freezing
-while waiting for the network response, ensuring the system is responsive
-
-- Input/Output Contract Enforcement (Modular Design) is the principle that every component should
-strictly adhere to its defined input (e.g., hash) and its defined output (e.g., structured JSON result)
-for the system to function
-
-SHREDR mititages the risk API key exposure by only managing the VT API key using environment variables
-
-The lifecycle stage which precedes YARA rule compilation is malware discovery and forensic investigation,
-where a forensic analyst identifies the unique characteristics of a new threat
 
 Configuration:
 - Ensure YARA is properly installed and accessible
@@ -332,10 +325,43 @@ Configuration:
                                font=('Segoe UI', 10), justify='left')
         about_label.pack(padx=20, pady=20, anchor='nw')
 
+
+
+        # about_image_path = "ABOUT-FLOW.png"
+        # base_img = Image.open(about_image_path).convert("RGBA")
+
+        # alpha = base_img.split()[3].point(lambda p: int(p * 0.25)) 
+        # base_img.putalpha(alpha)
+
+        # self.base_about_img = base_img
+        # self.about_photo = ImageTk.PhotoImage(base_img)
+        
+        # about_label = tk.Label(
+        #     about_frame, image=self.about_photo, background="#f5f6f7",
+        #     bd=0, highlightthickness=0
+        # )
+        # about_label.pack(anchor='center', pady=(20,10))
+
+        # def resize_about_image(event):
+        #     max_width = min(event.width - 60, self.base_about_imag.width)
+        #     aspect_ratio = self.base_about_img.height / self.base_about_img.width
+        #     new_height = int(max_width / aspect_ratio)
+
+        #     resized = self.base_about_img.resize((max_width, new_height), Image.LANCZOS)
+        #     self.about_photo = ImageTk.PhotoImage(resized)
+        #     about_label.config(image=self.about_photo)
+        # about_frame.bind("<Configure>", resize_about_image)
+
     def clear_history(self):
         if messagebox.askyesno("Confirm", "Clear all scan history?"):
             for item in self.history_table.get_children():
                 self.history_table.delete(item)
+            conn = sqlite3.connect("history.db")
+            cur = conn.cursor()
+            cur.execute("DELETE FROM scans")
+            conn.commit()
+            conn.close()
+
 
     def export_report(self):
         content = self.output_box.get(1.0, tk.END)

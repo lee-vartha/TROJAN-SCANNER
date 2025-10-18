@@ -46,7 +46,6 @@ rule arctic_bomb {
         $hex2 = { 41 42 6f 6d 62 } // assuming this is MUTEX ("aBomb")
     
     condition:
-        uint16(0) == 0x5A4D and // PE file check
         filesize < 1MB and
         any of ($hex*)
 }
