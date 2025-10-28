@@ -163,7 +163,6 @@ def run_yara_scan(gui, folder_path):
     # YARA can scan a single file or a directory recursively
     yara_target = folder_path
     
-    # We use RULES_FOLDER instead of RULES_FILE as per config.py snippet structure
     try:
         yara_result = subprocess.run(
             [YARA_PATH, '-r', '-w', RULES_FOLDER, yara_target],
@@ -234,17 +233,25 @@ def verify_virustotal(gui, suspicious_files):
     Calculates SHA256 and queries VirusTotal for each suspicious file.
     """
     vt_detections_total = 0
-    vt_result_final = "CLEAN"\
+    vt_result_final = "CLEAN"
     
+    if not hasattr(gui, 'scan_results'):
+        gui.scan_results = []
+    else:
+        gui.scan_results.clear()
+
+
     if not VT_API_KEY:
         log_message(gui, "⚠ VirusTotal API key not configured. Skipping VT check.", 'warning')
         for file_info in suspicious_files:
             file_info['vt_malicious'] = 0
             file_info['vt_suspicious'] = 0
-            file_info['verdict'] = decide_verdict(True)
+            file_info['sha256'] = file_info.get('sha256', 'N/A')
+            file_info['vt_result'] = "CLEAN"
+            file_info['verdict'] = "SUSPICIOUS" if file_info.get('rules') else "CLEAN"
             gui.scan_results.append(file_info)
             add_to_history(gui, file_info)
-        return
+        return 0, "CLEAN"
  
     headers = {"x-apikey": VT_API_KEY}
     
@@ -253,14 +260,19 @@ def verify_virustotal(gui, suspicious_files):
             break
  
         file_path = file_info['path']
+        filename = os.path.basename(file_path)
  
-        log_message(gui, f"[VT Check] {os.path.basename(file_path)}", "info")
+        log_message(gui, f"[VT Check] {filename}", "info")
         # update_progress(gui, f"Checking file {item+1}/{len(suspicious_files)} with VirusTotal...")
         update_progress(gui, f"VirusTotal: {item+1}/{len(suspicious_files)} files checked...")
         
-        file_info['vt_malicious'] = 0
+        file_info.setdefault('vt_malicious', 0)
+        file_info.setdefault('vt_suspicious', 0)
+        file_info['vt_detections'] = 0
         file_info['vt_suspicious'] = 0
-        file_info['verdict'] = decide_verdict(True) # Default to Suspicious if YARA matched
+        file_info['vt_result'] = "CLEAN"
+        file_info['verdict'] = "SUSPICIOUS"
+
  
         try:
             # Calculate the SHA256 hash
@@ -273,21 +285,21 @@ def verify_virustotal(gui, suspicious_files):
             response = requests.get(VT_URL + sha256, headers=headers)
  
             if response.status_code == 200:
-                stats = response.json()["data"]["attributes"]["last_analysis_stats"]
-                mal = stats.get("malicious", 0)
-                susp = stats.get("suspicious", 0)
+                stats = response.json().get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+                mal = int(stats.get("malicious", 0))
+                susp = int(stats.get("suspicious", 0))
  
                 file_info['vt_malicious'] = mal
                 file_info['vt_suspicious'] = susp
-                file_info['verdict'] = decide_verdict(yara_matched=True, stats={'malicious': mal})
-                verdict = file_info['verdict']
+                file_info['verdict'] = "MALICIOUS" if mal > 0 else ("SUSPICIOUS" if susp > 0 else "CLEAN")
+                file_info['verdict'] = file_info['vt_result']
  
                 if mal > 0:
                         log_message(gui, f"  🔴 {mal} engines detected MALICIOUS.", 'err')
                 elif susp > 0:
                         log_message(gui, f"  🟠 {susp} engines flagged SUSPICIOUS.", 'warn')
                 else:
-                    log_message(gui, f"  ✅ VT Clean. Final Verdict: {verdict}", "success")
+                    log_message(gui, f"  ✅ VT Clean. Final Verdict: {file_info['verdict']}", "success")
  
             # 2. Hash not found, attempt upload (POST request)
             elif response.status_code == 404:
@@ -297,7 +309,7 @@ def verify_virustotal(gui, suspicious_files):
                     with open(file_path, "rb") as f:
                         upload_response = requests.post(UPLOAD_URL, 
                                                         headers=headers, 
-                                                        files={"file": (os.path.basename(file_path), f)})
+                                                        files={"file": (filename, f)})
  
                     if upload_response.status_code == 200:
                         analysis_id = upload_response.json()["data"]["id"]
@@ -309,17 +321,19 @@ def verify_virustotal(gui, suspicious_files):
                         result = requests.get(f"https://www.virustotal.com/api/v3/analyses/{analysis_id}", headers=headers)
                         
                         if result.status_code == 200:
-                            stats = result.json()["data"]["attributes"]["stats"]
+                            stats = response.json().get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
                             mal = stats.get("malicious", 0)
                             file_info['vt_malicious'] = mal
-                            file_info['verdict'] = decide_verdict(yara_matched=True, stats={'malicious': mal})
+                            file_info['vt_result'] = "MALICIOUS" if mal > 0 else "CLEAN"
+                            file_info['verdict'] = file_info['vt_result'] 
                             log_message(gui, f" Analysis result: Malicious={mal}. Verdict: {file_info['verdict']}", "info")
                         else:
                             log_message(gui, f"Could not retrieve results (HTTP {result.status_code}). Keeping YARA verdict: Suspicious", "err")
-                            
+                            file_info['vt_result'] = file_info.get('verdict', 'SUSPICIOUS')
                     else:
                         log_message(gui, f"Upload failed (HTTP {upload_response.status_code}). Keeping YARA verdict: Suspicious", "err")
-                        
+                        file_info['vt_result'] = file_info.get('verdict', 'SUSPICIOUS')
+
                 except Exception as e:
                     log_message(gui, f"  ⚠ Upload/Analysis error: {str(e)}", 'err')
                     

@@ -109,7 +109,7 @@ def run_yara_scan(gui, target_path):
                 else:                     
                     file_info = {                         
                         "path": path,                         
-                        "rules": [rule],                         
+                        "rules": [m.rule for m in matches],                         
                         "timestamp": datetime.now().strftime("%d-%m-%Y %H:%M:%S")                     
                         }                     
                     suspicious_files.append(file_info)                     

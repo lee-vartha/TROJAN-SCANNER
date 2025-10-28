@@ -87,7 +87,7 @@ class launch_gui():
         #                     font=("Times New Roman", 13), background='#f5f6f7') # subtitle of the scan tab
         # subtitle.pack(anchor="w", padx=30)
 
-        description = tk.Label(title_frame, wraplength=500, text="The purpose of this tool is to provide a dual-stage security triage (open-source) framework, which combines YARA speed with VirusTotal fidelity, which doubles as a transparent developer testing platform since the backend is modular to adapt to other custom rules. \nThis tool is for educational and research purposes.",
+        description = tk.Label(title_frame, wraplength=500, text="The purpose of this tool is to provide a dual-stage security triage (open-source) framework, which combines YARA speed with VirusTotal fidelity, which doubles as a transparent developer testing platform since the backend is modular to adapt to other custom rules.",
                             font=("Times New Roman", 10), background='#f5f6f7', justify="left") # subtitle of the scan tab
         description.pack(anchor="w", padx=30, pady=(0,15))
 
