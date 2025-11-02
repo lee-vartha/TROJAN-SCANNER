@@ -248,7 +248,7 @@ def verify_virustotal(gui, suspicious_files):
             file_info['vt_suspicious'] = 0
             file_info['sha256'] = file_info.get('sha256', 'N/A')
             file_info['vt_result'] = "CLEAN"
-            file_info['verdict'] = "SUSPICIOUS" if file_info.get('rules') else "CLEAN"
+            file_info['verdict'] = "SUSPICIOUS" 
             gui.scan_results.append(file_info)
             add_to_history(gui, file_info)
         return 0, "CLEAN"
@@ -291,7 +291,8 @@ def verify_virustotal(gui, suspicious_files):
  
                 file_info['vt_malicious'] = mal
                 file_info['vt_suspicious'] = susp
-                file_info['verdict'] = "MALICIOUS" if mal > 0 else ("SUSPICIOUS" if susp > 0 else "CLEAN")
+                file_info['vt_detections'] = mal 
+                file_info['vt_result'] = "MALICIOUS" if mal > 0 else ("SUSPICIOUS" if susp > 0 else "CLEAN")
                 file_info['verdict'] = file_info['vt_result']
  
                 if mal > 0:
@@ -350,6 +351,7 @@ def verify_virustotal(gui, suspicious_files):
         # gui.scan_results.append(file_info)
 
         add_to_history(gui, file_info)
+        gui.scan_results.append(file_info)
         time.sleep(1) 
 
     total_mal = sum(f.get('vt_malicious', 0) for f in suspicious_files)
@@ -425,18 +427,17 @@ def refresh_history(gui):
 def generate_summary(gui):
     """Generates the detailed summary in the Summary tab."""
     total_files = len(gui.scan_results) if hasattr(gui, 'scan_results') else 0
-    malicious_count = sum(1 for f in gui.scan_results if f.get('verdict') == 'Malicious')
-    suspicious_count = sum(1 for f in gui.scan_results if f.get('verdict') == 'Suspicious')
+    malicious_count = sum(1 for f in gui.scan_results if f.get('verdict') == 'MALICIOUS')
+    suspicious_count = sum(1 for f in gui.scan_results if f.get('verdict') == 'SUSPICIOUS')
     clean_count = total_files - malicious_count - suspicious_count
 
-    
     gui.summary_text.configure(state='normal')
     gui.summary_text.delete(1.0, tk.END)
     
     report_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     gui.summary_text.insert(tk.END, "--- SHREDR Analysis Report ---\n", 'heading')
-    gui.summary_text.insert(tk.END, f"Generated: {report_time}\n")
+    gui.summary_text.insert(tk.END, f"Generated: {report_time}\n", 'muted')
     gui.summary_text.insert(tk.END, "-" * 60 + "\n\n")
 
     # Overview
@@ -445,6 +446,7 @@ def generate_summary(gui):
     gui.summary_text.insert(tk.END, f"Malicious Verdicts: {malicious_count}\n", 'err')
     gui.summary_text.insert(tk.END, f"Suspicious Verdicts: {suspicious_count}\n", 'warn')
     gui.summary_text.insert(tk.END, f"Clean/Low Confidence: {clean_count}\n\n")
+
     
     # Detailed Results
     gui.summary_text.insert(tk.END, "[DETAILED FILE RESULTS]\n", 'subheading')
@@ -453,7 +455,7 @@ def generate_summary(gui):
         gui.summary_text.insert(tk.END, "No suspicious files were processed for detailed report.\n")
     
     for f in gui.scan_results:
-        verdict_tag = 'err' if f['verdict'] == 'Malicious' else ('warn' if f['verdict'] == 'Suspicious' else 'success')
+        verdict_tag = 'err' if f['verdict'] == 'MALICIOUS' else ('warn' if f['verdict'] == 'SUSPICIOUS' else 'success')
         
         gui.summary_text.insert(tk.END, f"FILE: {os.path.basename(f['path'])}\n", 'file_heading')
         gui.summary_text.insert(tk.END, f"  Path: {f['path']}\n")
